@@ -7,7 +7,10 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    SummaryWriter = None
 import yaml
 from tqdm import tqdm
 
@@ -28,7 +31,7 @@ def train(config_path):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     writer = None
-    if cfg["output"].get("tensorboard"):
+    if cfg["output"].get("tensorboard") and SummaryWriter is not None:
         writer = SummaryWriter(log_dir=str(save_dir / "logs"))
 
     # Model

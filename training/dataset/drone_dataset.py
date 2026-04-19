@@ -47,6 +47,11 @@ class DroneDataset(Dataset):
         labels = self._load_labels(label_path, w0, h0)
 
         if self.transforms:
+            if len(labels) > 0:
+                labels[:, 1:5] = np.clip(labels[:, 1:5], 0.0, 1.0)
+                # Remove degenerate boxes
+                valid = (labels[:, 3] > 0.001) & (labels[:, 4] > 0.001)
+                labels = labels[valid]
             bboxes = labels[:, 1:5].tolist() if len(labels) > 0 else []
             class_labels = labels[:, 0].astype(int).tolist() if len(labels) > 0 else []
 
@@ -167,6 +172,7 @@ class DroneDataset(Dataset):
             labels[:, 2] = (labels[:, 2] * nh + pad_y) / s
             labels[:, 3] = labels[:, 3] * nw / s
             labels[:, 4] = labels[:, 4] * nh / s
+            labels[:, 1:5] = np.clip(labels[:, 1:5], 0.0, 1.0)
 
         return canvas, labels
 

@@ -85,7 +85,7 @@ class DetectionLoss(nn.Module):
 
             # Decode predictions to pixel space
             pred_xy = (reg_pred[..., :2].sigmoid() + grid.unsqueeze(0)) * stride
-            pred_wh = reg_pred[..., 2:4].exp() * stride
+            pred_wh = reg_pred[..., 2:4].clamp(max=10).exp() * stride
             pred_x1y1 = pred_xy - pred_wh / 2
             pred_x2y2 = pred_xy + pred_wh / 2
             pred_boxes = torch.cat([pred_x1y1, pred_x2y2], dim=-1)
