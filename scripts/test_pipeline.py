@@ -119,14 +119,16 @@ def nms(detections, iou_thresh=0.45):
     return keep
 
 
-def detect(model, frame, device, conf_thresh=0.25, input_size=416):
+def detect_model(model, frame, device, conf_thresh=0.25, input_size=416):
+    """Run CNN detection (requires trained model)."""
+    frame_h, frame_w = frame.shape[:2]
     img, scale, px, py = letterbox(frame, input_size)
     blob = img.astype(np.float32) / 255.0
     blob = np.transpose(blob, (2, 0, 1))[np.newaxis]
     tensor = torch.from_numpy(blob).to(device)
 
     with torch.no_grad():
-        output = model(tensor)  # [1, 3380, 10]
+        output = model(tensor)
 
     preds = output[0].cpu().numpy()
     cx, cy, w, h = preds[:, 0], preds[:, 1], preds[:, 2], preds[:, 3]
@@ -143,7 +145,64 @@ def detect(model, frame, device, conf_thresh=0.25, input_size=416):
         y1 = (cy[i] - h[i] / 2 - py) / scale
         x2 = (cx[i] + w[i] / 2 - px) / scale
         y2 = (cy[i] + h[i] / 2 - py) / scale
+
+        x1 = max(0, min(x1, frame_w))
+        y1 = max(0, min(y1, frame_h))
+        x2 = max(0, min(x2, frame_w))
+        y2 = max(0, min(y2, frame_h))
+
+        if (x2 - x1) < 5 or (y2 - y1) < 5:
+            continue
+
         detections.append([x1, y1, x2, y2, scores[i], cls_ids[i]])
+
+    return nms(detections)
+
+
+def detect_visual(frame):
+    """Detect dark objects against bright sky using image processing.
+    Works without a trained model — finds drones by contrast."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Adaptive threshold to find dark objects on bright background
+    bg = cv2.GaussianBlur(gray, (51, 51), 0)
+    diff = cv2.absdiff(bg, blurred)
+    _, thresh = cv2.threshold(diff, 20, 255, cv2.THRESH_BINARY)
+
+    # Morphological cleanup
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    detections = []
+    frame_h, frame_w = frame.shape[:2]
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < 100 or area > 50000:
+            continue
+
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect = w / max(h, 1)
+        if aspect > 5 or aspect < 0.2:
+            continue
+
+        # Add padding
+        pad = int(max(w, h) * 0.3)
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
+        x2 = min(frame_w, x + w + pad)
+        y2 = min(frame_h, y + h + pad)
+
+        # Score based on contrast
+        roi_mean = gray[y:y+h, x:x+w].mean()
+        bg_mean = bg[y:y+h, x:x+w].mean()
+        conf = min(1.0, abs(bg_mean - roi_mean) / 80.0)
+
+        cls_id = 1 if area > 1000 else 0
+        detections.append([float(x1), float(y1), float(x2), float(y2), conf, cls_id])
 
     return nms(detections)
 
@@ -188,27 +247,31 @@ def main():
     parser.add_argument("--video", default="data/test_video.mp4")
     parser.add_argument("--model", default="runs/test/best.pt")
     parser.add_argument("--output", default="data/test_output.mp4")
-    parser.add_argument("--conf", type=float, default=0.15)
+    parser.add_argument("--conf", type=float, default=0.3)
+    parser.add_argument("--mode", choices=["visual", "model"], default="visual",
+                        help="Detection mode: 'visual' (contrast-based, no model needed) or 'model' (CNN)")
     parser.add_argument("--show", action="store_true", help="Display live window")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
+    print(f"Detection mode: {args.mode}")
 
-    model = DroneNetPico(num_classes=5, input_size=416).to(device)
-    ckpt = torch.load(args.model, map_location=device)
-    model.load_state_dict(ckpt["model"])
-    model.eval()
-    print("Model loaded")
+    model = None
+    if args.mode == "model":
+        model = DroneNetPico(num_classes=5, input_size=416).to(device)
+        ckpt = torch.load(args.model, map_location=device)
+        model.load_state_dict(ckpt["model"])
+        model.eval()
+        print("Model loaded")
 
-    # GPU warmup
-    if device.type == "cuda":
-        dummy = torch.randn(1, 3, 416, 416, device=device)
-        with torch.no_grad():
-            for _ in range(10):
-                model(dummy)
-            torch.cuda.synchronize()
-        print("GPU warmup done")
+        if device.type == "cuda":
+            dummy = torch.randn(1, 3, 416, 416, device=device)
+            with torch.no_grad():
+                for _ in range(10):
+                    model(dummy)
+                torch.cuda.synchronize()
+            print("GPU warmup done")
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -237,7 +300,10 @@ def main():
             break
 
         t0 = time.perf_counter()
-        detections = detect(model, frame, device, conf_thresh=args.conf)
+        if args.mode == "visual":
+            detections = detect_visual(frame)
+        else:
+            detections = detect_model(model, frame, device, conf_thresh=args.conf)
         det_ms = (time.perf_counter() - t0) * 1000
 
         tracks = tracker.update(detections)
