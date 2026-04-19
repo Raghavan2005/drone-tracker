@@ -1,0 +1,60 @@
+capture:
+  source: "usb"
+  device: 0
+  # url: "rtsp://192.168.1.100/stream"
+  # path: "/path/to/video.mp4"
+  width: 1280
+  height: 720
+  fps: 60
+
+detector:
+  backend: "tensorrt"
+  model_path: "models/drone_net_pico.engine"
+  input_size: 416
+  confidence_threshold: 0.25
+  nms_iou_threshold: 0.45
+  fp16: true
+
+tracker:
+  max_age: 30
+  min_hits: 3
+  iou_threshold: 0.3
+  high_threshold: 0.5
+  low_threshold: 0.1
+  trajectory_history: 30
+
+predictor:
+  method: "polynomial"
+  horizon_frames: 10
+  polynomial_order: 2
+
+targeting:
+  selection_mode: "nearest_center"
+  smoothing_alpha: 0.3
+  camera_fov_h_deg: 60.0
+  camera_fov_v_deg: 34.0
+  camera_fx: 1066.67
+  camera_fy: 1066.67
+  camera_cx: 640.0
+  camera_cy: 360.0
+
+gimbal:
+  enabled: false
+  serial_port: "/dev/ttyUSB0"
+  baud_rate: 9600
+  protocol: "pelco_d"
+  pan_range_deg: [-180, 180]
+  tilt_range_deg: [-90, 90]
+
+ui:
+  fullscreen: false
+  show_fps: true
+  show_trajectories: true
+  show_debug: false
+  recording_enabled: false
+  recording_path: "recordings/"
+
+logging:
+  level: "info"
+  file: "logs/drone_tracker.log"
+  console: true

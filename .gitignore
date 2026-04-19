@@ -1,0 +1,39 @@
+# Build
+build/
+cmake-build-*/
+
+# Data and models
+data/*
+!data/.gitkeep
+models/*.engine
+models/*.onnx
+models/*.pt
+!models/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+.eggs/
+*.egg
+training/venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+compile_commands.json
+
+# Logs and recordings
+logs/
+recordings/
+
+# OS
+.DS_Store
+Thumbs.db
